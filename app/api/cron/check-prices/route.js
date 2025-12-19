@@ -1,11 +1,7 @@
-import { sendPriceDropAlert } from "@/lib/email";
-import { scrapeProduct } from "@/lib/firecrawl";
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-
-export async function GET() {
-     return NextResponse.json({ message: "Price check endpoint is working. Use POST to trigger." });
-}
+import { createClient } from "@supabase/supabase-js";
+import { scrapeProduct } from "@/lib/firecrawl";
+import { sendPriceDropAlert } from "@/lib/email";
 
 export async function POST(request) {
      try {
@@ -28,7 +24,7 @@ export async function POST(request) {
 
           if (productsError) throw productsError;
 
-          console.log(`Found ${products.length} products to check.`);
+          console.log(`Found ${products.length} products to check`);
 
           const results = {
                total: products.length,
@@ -36,7 +32,7 @@ export async function POST(request) {
                failed: 0,
                priceChanges: 0,
                alertsSent: 0,
-          }
+          };
 
           for (const product of products) {
                try {
@@ -50,13 +46,16 @@ export async function POST(request) {
                     const newPrice = parseFloat(productData.currentPrice);
                     const oldPrice = parseFloat(product.current_price);
 
-                    await supabase.from("products").update({
-                         current_price: newPrice,
-                         currency: productData.currencyCode || product.currency,
-                         name: productData.productName || product.name,
-                         image_url: productData.productImageUrl || product.image_url,
-                         updated_at: new Date().toISOString(),
-                    }).eq("id", product.id);
+                    await supabase
+                         .from("products")
+                         .update({
+                              current_price: newPrice,
+                              currency: productData.currencyCode || product.currency,
+                              name: productData.productName || product.name,
+                              image_url: productData.productImageUrl || product.image_url,
+                              updated_at: new Date().toISOString(),
+                         })
+                         .eq("id", product.id);
 
                     if (oldPrice !== newPrice) {
                          await supabase.from("price_history").insert({
@@ -64,37 +63,49 @@ export async function POST(request) {
                               price: newPrice,
                               currency: productData.currencyCode || product.currency,
                          });
+
                          results.priceChanges++;
 
                          if (newPrice < oldPrice) {
-                              // Alert
-
-                              const { data: { user }, } = await supabase.auth.admin.getUserById(product.user_id);
+                              const {
+                                   data: { user },
+                              } = await supabase.auth.admin.getUserById(product.user_id);
 
                               if (user?.email) {
-                                   // Send Email
-                                   const emailResult = await sendPriceDropAlert(user.email, product, oldPrice, newPrice);
-                              };
+                                   const emailResult = await sendPriceDropAlert(
+                                        user.email,
+                                        product,
+                                        oldPrice,
+                                        newPrice
+                                   );
 
-                              if (emailResult.success) {
-                                   results.alertsSent++;
+                                   if (emailResult.success) {
+                                        results.alertsSent++;
+                                   }
                               }
                          }
                     }
+
                     results.updated++;
                } catch (error) {
-                    console.error(`Error checking price for product ${product.id}:`, error);
+                    console.error(`Error processing product ${product.id}:`, error);
                     results.failed++;
                }
           }
 
           return NextResponse.json({
                success: true,
-               message: "Price check completed.",
+               message: "Price check completed",
                results,
           });
      } catch (error) {
           console.error("Cron job error:", error);
           return NextResponse.json({ error: error.message }, { status: 500 });
      }
+}
+
+export async function GET() {
+     return NextResponse.json({
+          message: "Price check endpoint is working. Use POST to trigger.",
+     });
 }
